@@ -47,16 +47,22 @@ function beep(kind) {
     const seq = { ok: [[880, 0, .09], [1320, .08, .14]], bad: [[220, 0, .18], [180, .1, .2]], tap: [[660, 0, .05]], coin: [[1568, 0, .07], [2093, .07, .12]],
       pass: [[523, 0, .12], [659, .12, .12], [784, .24, .12], [1047, .36, .3]], fail: [[392, 0, .25], [311, .25, .25], [233, .5, .5]],
       step: [[150, 0, .035]], vroom: [[90, 0, .3], [130, .12, .3]], news: [[784, 0, .1], [988, .1, .1], [1175, .2, .18]],
-      honk: [[415, 0, .26], [523, 0, .26]], phone: [[1318, 0, .08], [1568, .1, .08], [1318, .22, .08], [1568, .32, .08]] }[kind] || [];
+      honk: [[415, 0, .26], [523, 0, .26]], crash: [[140, 0, .3], [90, .04, .45], [60, .12, .5]], phone: [[1318, 0, .08], [1568, .1, .08], [1318, .22, .08], [1568, .32, .08]] }[kind] || [];
     seq.forEach(([f, d, len]) => {
       const o = AC.createOscillator(), g = AC.createGain();
-      o.type = kind === 'bad' || kind === 'fail' || kind === 'vroom' ? 'sawtooth' : kind === 'step' ? 'triangle' : 'square'; o.frequency.value = f * (kind === 'step' ? .8 + Math.random() * .5 : 1);
-      g.gain.setValueAtTime(kind === 'step' ? .16 : .07, t + d); g.gain.exponentialRampToValueAtTime(.0001, t + d + len);
+      o.type = kind === 'bad' || kind === 'fail' || kind === 'vroom' || kind === 'crash' ? 'sawtooth' : kind === 'step' ? 'triangle' : 'square'; o.frequency.value = f * (kind === 'step' ? .8 + Math.random() * .5 : 1);
+      g.gain.setValueAtTime(kind === 'step' ? .16 : kind === 'crash' ? .2 : .07, t + d); g.gain.exponentialRampToValueAtTime(.0001, t + d + len);
       o.connect(g).connect(AC.destination); o.start(t + d); o.stop(t + d + len + .02);
     });
   } catch (e) {}
 }
 $('#mute').textContent = muted ? '🔇' : '🔊';
+/* 전체화면 (태블릿) */
+const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+function goFull(on = true) { try { const d = document.documentElement; if (on && !fsEl()) { const r = (d.requestFullscreen || d.webkitRequestFullscreen)?.call(d, { navigationUI: 'hide' }); r?.catch?.(() => {}); } else if (!on && fsEl()) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document); } catch (e) {} }
+const fsBtn = () => { $('#full').textContent = fsEl() ? '전체화면 끄기' : '전체화면'; };
+if (!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)) $('#full').style.display = 'none';
+$('#full').onclick = () => goFull(!fsEl()); document.addEventListener('fullscreenchange', fsBtn); document.addEventListener('webkitfullscreenchange', fsBtn);
 $('#mute').onclick = () => { muted = !muted; LS.set('muted', muted); $('#mute').textContent = muted ? '🔇' : '🔊'; };
 /* 📻 라디오 — 태블릿에서는 기본 꺼짐 (누를 때마다 채널이 바뀜) */
 const radioBtn = () => { $('#radio').textContent = UC.Radio.label(); $('#radio').classList.toggle('on', UC.Radio.cur >= 0); };
@@ -107,7 +113,7 @@ let newsT = null;
 function news(text) {
   const n = $('#news'); n.querySelector('span').textContent = text; n.classList.add('on'); beep('news'); UC.Radio.duck(4200 / SPEED);
   clearTimeout(newsT); newsT = setTimeout(() => n.classList.remove('on'), 6500 / SPEED);
-  try { if (UC.Radio.cur >= 0 && !muted && window.speechSynthesis) { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance('실업 FM 뉴스 속보. ' + text); u.lang = 'ko-KR'; u.rate = 1.08; speechSynthesis.speak(u); } } catch (e) {}
+  try { if (UC.Radio.cur >= 0 && !muted && window.speechSynthesis) { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance('종암 실업 뉴스. ' + text); u.lang = 'ko-KR'; u.rate = 1.08; speechSynthesis.speak(u); } } catch (e) {}
 }
 let talkBusy = false;          // 행인과 대화 중이면 미션 대사는 잠깐 기다림
 /* 미션 완료 화면: 제목 + 기록 줄 + 메달 */
@@ -211,7 +217,27 @@ const City = (() => {
     ? { ax: 'x', p: 100 + Math.random() * 1400, q: [248, 392, 696, 840][i % 4], d: i % 2 ? 1 : -1, sk: rnd(SH), ts: rnd(TS), t: Math.random() * 9 }
     : { ax: 'y', p: 100 + Math.random() * 900, q: [312, 456, 760, 904, 1208][i % 5], d: i % 2 ? 1 : -1, sk: rnd(SH), ts: rnd(TS), t: Math.random() * 9 });
 
-  const pl = { x: SPOT.home[0], y: SPOT.home[1], a: 0, walk: 0, taxi: false, moving: false };
+  const pl = { x: SPOT.home[0], y: SPOT.home[1], a: 0, walk: 0, taxi: false, moving: false, down: 0, inv: 0, kx: 0, ky: 0, spin: 1 };
+  const PLACE = { home: '근로네 집', mail: '우체통', farm: '배추 농장', call: 'AI 콜센터', rest: '근로 식당', center: '고용 센터', counsel: '실업 상담소' };
+  let destName = '', route = [], routeT = 0, onHurt = null, shake = 0;
+  /* 길 안내(GPS) — 도로 가운데 선을 따라 가장 짧은 길 */
+  const RX = VR.map(([a, b]) => (a + b) / 2), RY = HR.map(([a, b]) => (a + b) / 2);
+  function snapRoad(x, y) { let s = null; RX.forEach(v => { const d = Math.abs(x - v); if (!s || d < s.d) s = { d, p: [v, clamp(y, 0, H)] }; }); RY.forEach(h => { const d = Math.abs(y - h); if (d < s.d) s = { d, p: [clamp(x, 0, W), h] }; }); return s.p; }
+  function makeRoute() {
+    if (!target || arena || pl.taxi) { route = []; return; }
+    const P0 = [pl.x, pl.y], T0 = target.slice();
+    if (Math.hypot(T0[0] - P0[0], T0[1] - P0[1]) < 110) { route = [P0, T0]; return; }
+    const pts = []; RX.forEach(x => RY.forEach(y => pts.push([x, y]))); const si = pts.push(snapRoad(...P0)) - 1, ei = pts.push(snapRoad(...T0)) - 1, adj = pts.map(() => []);
+    [...RX.map(v => p => Math.abs(p[0] - v) < .5 ? p[1] : null), ...RY.map(h => p => Math.abs(p[1] - h) < .5 ? p[0] : null)].forEach(on => {
+      const ix = pts.map((p, i) => i).filter(i => on(pts[i]) != null).sort((a, b) => on(pts[a]) - on(pts[b]));
+      for (let k = 0; k + 1 < ix.length; k++) { const a = ix[k], b = ix[k + 1], d = Math.hypot(pts[a][0] - pts[b][0], pts[a][1] - pts[b][1]); adj[a].push([b, d]); adj[b].push([a, d]); } });
+    const dist = pts.map(() => Infinity), prev = pts.map(() => -1), done = pts.map(() => false); dist[si] = 0;
+    for (;;) { let u = -1; dist.forEach((d, i) => { if (!done[i] && d < Infinity && (u < 0 || d < dist[u])) u = i; }); if (u < 0 || u === ei) break; done[u] = true; adj[u].forEach(([v, d]) => { if (dist[u] + d < dist[v]) { dist[v] = dist[u] + d; prev[v] = u; } }); }
+    if (dist[ei] === Infinity) { route = [P0, T0]; return; }
+    const path = []; for (let i = ei; i >= 0; i = prev[i]) path.unshift(pts[i]);
+    route = [P0, ...path, T0].filter((p, i, a) => !i || Math.hypot(p[0] - a[i - 1][0], p[1] - a[i - 1][1]) > 1);
+  }
+  const routeLen = () => { let s = 0; for (let i = 1; i < route.length; i++) s += Math.hypot(route[i][0] - route[i - 1][0], route[i][1] - route[i - 1][1]); return s; };
   let target = null, onArrive = null, paused = false, fx = { snow: false, shutter: false, night: false, rain: false }, caption = '';
   const AR = { x0: 6000, y0: 200, x1: 6288, y1: 424, st: [0, 1, 2, 3].map(i => [6048 + i * 64, 238]), tb: [0, 1, 2, 3, 4, 5].map(i => [6060 + (i % 3) * 84, 316 + Math.floor(i / 3) * 66]) };   // 식당 안 (지도 밖)
   AR.obst = [{ x: AR.x0, y: AR.y0, w: 288, h: 20 }, ...AR.tb.map(([x, y]) => ({ x: x - 15, y: y - 12, w: 30, h: 24 }))];
@@ -286,7 +312,12 @@ const City = (() => {
     if (keys.ArrowUp || keys.w) my -= 1; if (keys.ArrowDown || keys.s) my += 1;
     if (frozen) mx = my = 0;
     const rr = pl.drive ? 20 : 13;
-    if (pl.taxi && target) {
+    if (pl.inv > 0) pl.inv -= dt;
+    if (pl.down > 0) {                  // 차에 치여 날아감 → 쓰러졌다 일어남
+      pl.down -= dt; pl.moving = false; const f = Math.exp(-3.2 * dt); pl.kx *= f; pl.ky *= f;
+      const nx = pl.x + pl.kx * dt, ny = pl.y + pl.ky * dt; if (!hit(nx, pl.y, 13)) pl.x = nx; else pl.kx *= -.4; if (!hit(pl.x, ny, 13)) pl.y = ny; else pl.ky *= -.4;
+      if (pl.down <= 0) pl.down = 0;
+    } else if (pl.taxi && target) {
       const dx = target[0] - pl.x, dy = target[1] - pl.y, m = Math.hypot(dx, dy), st = 900 * dt; pl.a = Math.atan2(dy, dx);
       if (m <= st) { pl.x = target[0]; pl.y = target[1]; pl.taxi = false; } else { pl.x += dx / m * st; pl.y += dy / m * st; }
       if (use3D) { let d = pl.a - camYaw; d = Math.atan2(Math.sin(d), Math.cos(d)); camYaw += d * Math.min(1, dt * 4); }
@@ -303,14 +334,18 @@ const City = (() => {
       const nx = pl.x + mx * sp, ny = pl.y + my * sp;
       if (!hit(nx, pl.y, rr)) pl.x = nx; if (!hit(pl.x, ny, rr)) pl.y = ny;
     }
-    if (!pl.drive && !pl.taxi) { const ws = Math.floor(pl.walk / Math.PI); if (ws !== pl.ws) { pl.ws = ws; beep('step'); } }        // 저벅저벅
-    if (target && !pl.taxi && Math.hypot(target[0] - pl.x, target[1] - pl.y) < 36) { const f = onArrive; target = null; onArrive = null; f && f(); }
+    if (!pl.drive && !pl.taxi && !pl.down) { const ws = Math.floor(pl.walk / Math.PI); if (ws !== pl.ws) { pl.ws = ws; beep('step'); } }        // 저벅저벅
+    routeT -= dt; if (routeT <= 0) { routeT = .35; makeRoute(); } else if (route.length) route[0] = [pl.x, pl.y];
+    if (target && !pl.taxi && !pl.down && Math.hypot(target[0] - pl.x, target[1] - pl.y) < 36) { const f = onArrive; target = null; onArrive = null; route = []; f && f(); }
     if (onNear) { let id = null; if (!arena && !pl.drive && !pl.taxi) for (const n of UC.NPCS) if (!npcOk[n.id] && Math.hypot(n.x - pl.x, n.y - pl.y) < 52) id = n.id; if (id !== nearId) { nearId = id; onNear(id); } }
     const cpos = c => c.ax === 'x' ? [c.p, c.lane] : [c.lane, c.p], cdir = c => c.ax === 'x' ? [c.dir, 0] : [0, c.dir];
     const sees = (c, x, y, far, wide) => { const [cx0, cy0] = cpos(c), [dx, dy] = cdir(c), ax = (x - cx0) * dx + (y - cy0) * dy, lt = Math.abs((x - cx0) * dy - (y - cy0) * dx); return ax > 0 && ax < far && lt < wide; };
     cars.forEach((c, i) => {
       const len = c.ax === 'x' ? W : H, was = c.stop;
-      c.stop = !pl.taxi && sees(c, pl.x, pl.y, 90, 30);                                     // 근로가 앞에 있으면 멈춤
+      const seen = !pl.taxi && !pl.drive && !arena && !pl.down && sees(c, pl.x, pl.y, 90, 30);   // 근로가 앞에 있으면: 대부분 멈추지만 가끔은 못 멈춤!
+      if (seen && c.brk == null) { c.brk = frozen || pl.inv > 0 || !onHurt || Math.random() < .55; if (!c.brk) beep('honk'); }
+      if (!seen) c.brk = null;
+      c.stop = seen && c.brk;
       if (c.stop && !was) beep('honk');
       c.wait = cars.some((o, j) => { if (j === i) return false; const [ox, oy] = cpos(o);          // 앞차·교차로에서 양보
         if (o.ax === c.ax) return o.lane === c.lane && sees(c, ox, oy, 96, 10);
@@ -318,8 +353,12 @@ const City = (() => {
       c.wt = c.wait ? (c.wt || 0) + dt : 0; if (c.wt > 4) { c.go = 1.6; c.wt = 0; } if (c.go > 0) { c.go -= dt; c.wait = false; }      // 서로 기다리다 멈추면 풀어 줌
       if (!c.stop && !c.wait) c.p += c.v * c.dir * dt;
       if (c.p > len + 80) c.p = -80; if (c.p < -80) c.p = len + 80;
-      if (!pl.taxi && !pl.drive && !arena) {                                              // 차 옆구리에 닿으면 밀려남
+      if (!pl.taxi && !pl.drive && !arena) {                                              // 달리는 차에 부딪히면 꽈당 / 멈춘 차 옆구리에 닿으면 밀려남
         const [cx0, cy0] = cpos(c), [dx, dy] = cdir(c), ax = (pl.x - cx0) * dx + (pl.y - cy0) * dy, lt = (pl.x - cx0) * -dy + (pl.y - cy0) * dx, hx = c.len / 2 + 11, hy = 28;
+        if (onHurt && !c.stop && !c.wait && !frozen && !pl.down && !(pl.inv > 0) && Math.abs(ax) < c.len / 2 + 6 && Math.abs(lt) < 22) {
+          const sd = Math.sign(lt || 1); pl.kx = dx * 300 - dy * sd * 190; pl.ky = dy * 300 + dx * sd * 190; pl.down = 1.8; pl.inv = 4.5; pl.spin = sd; shake = .6; c.brk = true;
+          beep('crash'); setTimeout(() => beep('honk'), 250); onHurt();
+        }
         if (Math.abs(ax) < hx && Math.abs(lt) < hy) { const push = (hy - Math.abs(lt)) * Math.sign(lt || 1), nx = pl.x + -dy * push, ny = pl.y + dx * push; if (!hit(nx, ny, 13)) { pl.x = nx; pl.y = ny; } }
       }
     });
@@ -428,12 +467,17 @@ const City = (() => {
       const g = cx.createRadialGradient(tx, ty, 4, tx, ty, 34 * pu); g.addColorStop(0, 'rgba(255,210,63,.55)'); g.addColorStop(1, 'rgba(255,210,63,0)'); cx.fillStyle = g; cx.beginPath(); cx.arc(tx, ty, 34 * pu, 0, 7); cx.fill();
       cx.strokeStyle = '#ffd23f'; cx.lineWidth = 5; cx.beginPath(); cx.arc(tx, ty, 24 * pu, 0, 7); cx.stroke(); cx.strokeStyle = '#000'; cx.lineWidth = 1.5; cx.beginPath(); cx.arc(tx, ty, 27 * pu, 0, 7); cx.stroke();
       glow.push({ k: 'dot', x: tx, y: ty, c: '255,210,63', r: 80 }); }
+    if (route.length > 1) { cx.lineJoin = 'round'; cx.lineCap = 'round';
+      [[16, 'rgba(0,0,0,.55)'], [9, '#ffd23f']].forEach(([w, c]) => { cx.strokeStyle = c; cx.lineWidth = w; cx.beginPath(); route.forEach(([x, y], i) => i ? cx.lineTo(x, y) : cx.moveTo(x, y)); cx.stroke(); });
+      cx.strokeStyle = '#fff6c2'; cx.lineWidth = 3; cx.setLineDash([10, 22]); cx.lineDashOffset = -tick * 60; cx.beginPath(); route.forEach(([x, y], i) => i ? cx.lineTo(x, y) : cx.moveTo(x, y)); cx.stroke(); cx.setLineDash([]); cx.lineDashOffset = 0; }
     peds.forEach(p => { const x = p.ax === 'x' ? p.p : p.q, y = p.ax === 'x' ? p.q : p.p; person(x, y, p.ax === 'x' ? (p.d > 0 ? 0 : Math.PI) : (p.d > 0 ? Math.PI / 2 : -Math.PI / 2), p.t, p.sk, p.ts, null, .82); });
     cars.forEach(car);
     UC.NPCS.forEach(n => { person(n.x, n.y, Math.PI / 2, 0, '#f1c9a5', n.shirt, null, 1); cx.fillStyle = '#fff'; cx.strokeStyle = '#000'; cx.lineWidth = 2; cx.beginPath(); cx.arc(n.x, n.y - 34, 13, 0, 7); cx.fill(); cx.stroke(); UC.drawIcon(cx, npcOk[n.id] ? 'check' : 'talk', n.x, n.y - 34, 19); });
     if (pl.taxi) car({ ax: 'x', p: pl.x, lane: pl.y, ang: pl.a, c: '#f2c230', taxi: true, len: 62, stop: false });
     else if (pl.drive) car({ ax: 'x', p: pl.x, lane: pl.y, ang: pl.a, c: '#e23b3b', taxi: false, len: 62, stop: false });
-    else person(pl.x, pl.y, pl.a, pl.walk, '#f1c9a5', '#d62839', '#ffd23f', 1.12);
+    else if (pl.down > 0) { const lie = Math.min(1, (1.8 - pl.down) / .3) * Math.min(1, pl.down / .35); cx.save(); cx.translate(pl.x, pl.y); cx.rotate(pl.spin * lie * 1.4 + (1.8 - pl.down < .5 ? (1.8 - pl.down) * 14 : 0)); cx.scale(1, 1 - lie * .35); person(0, 0, pl.a, 0, '#f1c9a5', '#d62839', '#ffd23f', 1.12); cx.restore();
+      for (let k = 0; k < 3; k++) { const a = tick * 5 + k * 2.1; label('★', pl.x + Math.cos(a) * 18, pl.y - 26 + Math.sin(a) * 6, 16, '#ffd23f'); } label('꽈당!', pl.x, pl.y - 52, 22, '#ff4d6d'); }
+    else if (!(pl.inv > 0) || Math.sin(tick * 30) > -.3) person(pl.x, pl.y, pl.a, pl.walk, '#f1c9a5', '#d62839', '#ffd23f', 1.12);
     // 높이가 있는 것: 화면 중심에서 먼 것부터
     const tall = [...B.map(b => ({ d: Math.hypot(b.x + b.w / 2 - ccx, b.y + b.h / 2 - ccy), f: () => building(b) })), ...TREES.map(([x, y, p]) => ({ d: Math.hypot(x - ccx, y - ccy), f: () => tree(x, y, p) })), ...LAMPS.map(([x, y]) => ({ d: Math.hypot(x - ccx, y - ccy) + 1, f: () => lamp(x, y) }))];
     tall.sort((a, b) => b.d - a.d).forEach(t => t.f());
@@ -468,6 +512,7 @@ const City = (() => {
     rx.fillStyle = '#23262c'; BX.forEach(([x0, x1]) => BY.forEach(([y0, y1]) => rx.fillRect(x0 * k, y0 * k, (x1 - x0) * k, (y1 - y0) * k)));
     rx.fillStyle = '#3a3e46'; B.forEach(b => rx.fillRect(b.x * k, b.y * k, b.w * k, b.h * k));
     rx.fillStyle = '#2c5a2f'; rx.fillRect(912 * k, 16 * k, 288 * k, 224 * k);
+    if (route.length > 1) { rx.lineJoin = rx.lineCap = 'round'; [[9, '#000'], [5, '#ffd23f']].forEach(([w, c]) => { rx.strokeStyle = c; rx.lineWidth = w; rx.beginPath(); route.forEach(([x, y], i) => i ? rx.lineTo(x * k, y * k) : rx.moveTo(x * k, y * k)); rx.stroke(); }); }
     rx.restore();
     if (target) { const ox = (target[0] - pl.x) * k, oy = (target[1] - pl.y) * k; let dx = ox * Math.cos(rot) - oy * Math.sin(rot), dy = ox * Math.sin(rot) + oy * Math.cos(rot); dx = clamp(dx, -RW / 2 + 16, RW / 2 - 16); dy = clamp(dy, -RH / 2 + 16, RH / 2 - 16);
       rx.fillStyle = '#ffd23f'; rx.strokeStyle = '#000'; rx.lineWidth = 3; rx.beginPath(); rx.arc(RW / 2 + dx, RH / 2 + dy, 11 + Math.sin(tick * 5) * 2, 0, 7); rx.fill(); rx.stroke(); }
@@ -651,6 +696,24 @@ const City = (() => {
       const r = new T.Mesh(new T.RingGeometry(1.5, 1.9, 32), bas({ color: 0xffd23f, side: T.DoubleSide, transparent: true, opacity: .9 })); r.rotation.x = -Math.PI / 2; r.position.y = .05; mk.add(r);
       const bm = new T.Mesh(new T.CylinderGeometry(.35, .35, 90, 8, 1, true), bas({ color: 0xffe27d, transparent: true, opacity: .28, blending: T.AdditiveBlending, depthWrite: false, fog: false })); bm.position.y = 45; mk.add(bm);
       const ar = new T.Mesh(new T.ConeGeometry(.8, 1.5, 4), bas({ color: 0xffd23f })); ar.rotation.x = Math.PI; ar.position.y = 5; mk.add(ar); mk.userData.ar = ar; } scene.add(mk);
+    /* 목적지 이름표 (건물 뒤에 있어도 보임) */
+    const dC = document.createElement('canvas'); dC.width = 512; dC.height = 140; const dT = tex(dC), dS = new T.Sprite(new T.SpriteMaterial({ map: dT, depthTest: false, depthWrite: false, fog: false })); dS.renderOrder = 10; dS.scale.set(5.6, 1.53, 1); scene.add(dS); let dName = null;
+    function drawDest(n) { const g = dC.getContext('2d'); g.clearRect(0, 0, 512, 140); g.font = '64px "Jua","Black Han Sans",sans-serif'; const w = Math.min(500, g.measureText(n).width + 70);
+      g.fillStyle = '#ffd23f'; g.strokeStyle = '#000'; g.lineWidth = 8; g.beginPath(); g.roundRect(256 - w / 2, 8, w, 96, 22); g.fill(); g.stroke(); g.beginPath(); g.moveTo(236, 102); g.lineTo(256, 132); g.lineTo(276, 102); g.closePath(); g.fill(); g.stroke(); g.fillRect(238, 96, 36, 9);
+      g.fillStyle = '#000'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(n, 256, 58); dT.needsUpdate = true; }
+    /* 길 안내 화살표 (바닥) */
+    const chevG = new T.BufferGeometry(); chevG.setAttribute('position', new T.Float32BufferAttribute([.75, 0, 0, -.35, 0, -.62, -.05, 0, 0, .75, 0, 0, -.05, 0, 0, -.35, 0, .62], 3));
+    const chevM = new T.MeshBasicMaterial({ color: 0xffd23f, side: T.DoubleSide, transparent: true, opacity: .95, depthWrite: false }), chevB = new T.MeshBasicMaterial({ color: 0x000000, side: T.DoubleSide, transparent: true, opacity: .55, depthWrite: false });
+    const chev = Array.from({ length: 130 }, () => { const g = new T.Group(), a = new T.Mesh(chevG, chevB), b = new T.Mesh(chevG, chevM); a.scale.setScalar(1.3); a.position.y = -.005; g.add(a, b); g.visible = false; g.renderOrder = 2; scene.add(g); return g; });
+    function drawRoute() {
+      let n = 0; const GAP = 30, ph = (tick * 70) % GAP; let carry = GAP - ph;
+      for (let i = 1; i < route.length && n < chev.length; i++) { const [ax, ay] = route[i - 1], [bx, by] = route[i], L = Math.hypot(bx - ax, by - ay); if (L < 1) continue; const a = Math.atan2(by - ay, bx - ax);
+        let s = carry; for (; s < L && n < chev.length; s += GAP) { const x = ax + (bx - ax) * s / L, y = ay + (by - ay) * s / L; if (Math.hypot(x - pl.x, y - pl.y) < 34 || Math.hypot(x - route[route.length - 1][0], y - route[route.length - 1][1]) < 30) continue;
+          const c = chev[n++]; c.visible = true; c.position.set(x * U, (onBlock(x, y) ? BH : 0) + .07, y * U); c.rotation.y = -a; } carry = s - L; }
+      for (; n < chev.length; n++) chev[n].visible = false;
+    }
+    /* 쓰러졌을 때 별 */
+    const starS = new T.Sprite(new T.SpriteMaterial({ map: tex(cvs(256, 96, g => { g.lineWidth = 6; g.strokeStyle = '#000'; g.fillStyle = '#ffd23f'; [50, 128, 206].forEach((x, i) => { g.beginPath(); for (let k = 0; k < 10; k++) { const r = k % 2 ? 13 : 30, a = -Math.PI / 2 + k * Math.PI / 5; g.lineTo(x + Math.cos(a) * r, 50 + (i === 1 ? -6 : 6) + Math.sin(a) * r); } g.closePath(); g.stroke(); g.fill(); }); })), depthWrite: false })); starS.scale.set(1.9, .72, 1); starS.visible = false; scene.add(starS);
 
     /* 눈 · 비 */
     const NP = 1400, pp = new Float32Array(NP * 3); for (let i = 0; i < NP * 3; i++) pp[i] = (Math.random() - .5) * (i % 3 === 1 ? 34 : 70);
@@ -685,6 +748,11 @@ const City = (() => {
       npcU.forEach(o => { o.b.position.y = 3 + Math.sin(tick * 4 + o.n.x) * .15; if (npcOk[o.n.id] && o.b.material !== emo('✅')) o.b.material = emo('✅'); });
       if (carryS.visible) carryS.position.set(px, py + 2.9, pz);
       hero.g.position.set(px, py, pz); hero.g.rotation.y = Math.PI / 2 - pl.a; swing(hero, pl.walk, pl.moving ? .75 : 0); if (!pl.moving) { hero.aL.rotation.x *= .8; hero.lL.rotation.x *= .8; }
+      if (pl.down > 0) { const e = 1.8 - pl.down, air = e < .55 ? Math.sin(e / .55 * Math.PI) * 1.7 : 0, lie = Math.min(1, e / .35) * Math.min(1, pl.down / .4);
+        hero.g.position.y = py + air + lie * .32; hero.g.rotation.z = pl.spin * (lie * Math.PI / 2 + (e < .55 ? e * 9 : 0)); starS.visible = e > .45; starS.position.set(px, py + 1.3 + Math.sin(tick * 8) * .1, pz); starS.material.rotation = tick * 3; }
+      else { hero.g.rotation.z = 0; starS.visible = false; hero.g.visible = hero.g.visible && (!(pl.inv > 0) || Math.sin(tick * 30) > -.4); }
+      drawRoute();
+      if (target && destName) { if (dName !== destName) { dName = destName; drawDest(destName); } dS.visible = true; dS.position.set(target[0] * U, (onBlock(target[0], target[1]) ? BH : 0) + 8.2 + Math.sin(tick * 3) * .2, target[1] * U); } else dS.visible = false;
       peds.forEach((p, i) => { const u = pedU[i], x = p.ax === 'x' ? p.p : p.q, y = p.ax === 'x' ? p.q : p.p, a = p.ax === 'x' ? (p.d > 0 ? 0 : Math.PI) : (p.d > 0 ? Math.PI / 2 : -Math.PI / 2); u.g.position.set(x * U, onBlock(x, y) ? BH : 0, y * U); u.g.rotation.y = Math.PI / 2 - a; swing(u, p.t * .8, .6); });
       cars.forEach((c, i) => { const x = c.ax === 'x' ? c.p : c.lane, y = c.ax === 'x' ? c.lane : c.p, a = c.ax === 'x' ? (c.dir > 0 ? 0 : Math.PI) : (c.dir > 0 ? Math.PI / 2 : -Math.PI / 2); carU[i].position.set(x * U, 0, y * U); carU[i].rotation.y = -a; });
       mk.visible = !!target; if (target) { const s = 1 + Math.sin(tick * 5) * .08; mk.position.set(target[0] * U, onBlock(target[0], target[1]) ? BH : 0, target[1] * U); mk.scale.set(s, 1, s); mk.userData.ar.position.y = 5 + Math.sin(tick * 5) * .5; mk.userData.ar.rotation.y = tick * 2; }
@@ -701,6 +769,7 @@ const City = (() => {
       }
       if (first) { cam.position.copy(cp); first = false; } else if (!(talkCam && !arena)) cam.position.lerp(cp, Math.min(1, dt * 7));
       if (talkCam && !arena) look.set(px, py + 1.75, pz); else look.set(px + fxv * 3, py + 1.5, pz + fzv * 3);
+      if (shake > 0) { shake -= dt; cam.position.x += (Math.random() - .5) * shake * .9; cam.position.y += (Math.random() - .5) * shake * .9; }
       cam.lookAt(look);
       sun.position.set(px - 36, 30, pz + 14); sun.target.position.set(px, 0, pz); sunDisc.position.set(cam.position.x - 420, 70, cam.position.z + 150); sunDisc.lookAt(cam.position);
       if (fx.snow) { const a = pg.attributes.position.array; for (let i = 0; i < NP; i++) { a[i * 3 + 1] -= dt * (2 + (i % 5) * .5); a[i * 3] += Math.sin(tick + i) * dt * .5; if (a[i * 3 + 1] < -2) a[i * 3 + 1] = 30; } pg.attributes.position.needsUpdate = true; snowP.position.set(cam.position.x, 0, cam.position.z); }
@@ -718,6 +787,13 @@ const City = (() => {
   }
 
   if (use3D) { try { G3 = make3D(); } catch (e) { console.error(e); if (QS.get('3d') == null) { LS.set('gfx', '2d'); location.reload(); } } }
+  function navHUD() {          // 위쪽 길 안내판: 어느 쪽으로 · 어디까지 · 몇 m
+    const nv = $('#nav'); if (!target || arena || pl.taxi) { nv.style.display = 'none'; return; }
+    const nx = route.length > 2 ? route[Math.min(2, route.length - 1)] : target; let hx = nx[0], hy = nx[1];
+    if (route.length > 2 && Math.hypot(route[1][0] - pl.x, route[1][1] - pl.y) > 40) [hx, hy] = route[1];
+    const a = Math.atan2(hy - pl.y, hx - pl.x) - (use3D ? camYaw : -Math.PI / 2), d = Math.round((route.length > 1 ? routeLen() : Math.hypot(target[0] - pl.x, target[1] - pl.y)) / 16);
+    nv.style.display = 'flex'; nv.querySelector('.ar').style.transform = `rotate(${a}rad)`; nv.querySelector('.nm').textContent = destName || '목적지'; nv.querySelector('.ds').textContent = d < 4 ? '거의 다 왔어!' : d + 'm';
+  }
   function frame(now) {
     const raw = now - last, dt = Math.min(.05, raw / 1000) * (SPEED > 1 ? 4 : 1); last = now;
     if (use3D && G3 && !paused && raw < 1000) {          // 기기가 느리면 그림자 끄기 → 그래도 느리면 2D 도시로 전환
@@ -727,10 +803,10 @@ const City = (() => {
     }
     if (!paused && use3D) {
       update(dt); G3 && G3.render(dt); drawRadar();
-      const nv = $('#nav'); if (target) { const d = Math.hypot(target[0] - pl.x, target[1] - pl.y), a = Math.atan2(target[1] - pl.y, target[0] - pl.x) - camYaw; nv.style.display = 'flex'; nv.firstChild.style.transform = `rotate(${a}rad)`; nv.lastChild.textContent = Math.round(d / 16) + 'm'; } else nv.style.display = 'none';
+      navHUD();
     } else if (!paused) {
       update(dt);
-      cx.setTransform(dpr * scale, 0, 0, dpr * scale, -camX * dpr * scale, -camY * dpr * scale); drawWorld(); lights();
+      cx.setTransform(dpr * scale, 0, 0, dpr * scale, -camX * dpr * scale, -camY * dpr * scale); drawWorld(); lights(); navHUD();
       if (target) {       // 화면 밖이면 방향 화살표
         const sx = (target[0] - camX) * scale, sy = (target[1] - camY) * scale;
         if (sx < 0 || sy < 0 || sx > vw || sy > vh) { const a = Math.atan2(sy - vh / 2, sx - vw / 2), r = Math.min(vw, vh) / 2 - 70;
@@ -753,7 +829,7 @@ const City = (() => {
     /* 미션 지점까지 걸어가기 (오래 걸리면 택시 버튼) */
     walkTo(key) {
       return new Promise(res => {
-        target = SPOT[key].slice(); const taxi = $('#taxi');
+        target = SPOT[key].slice(); destName = PLACE[key] || ''; routeT = 0; const taxi = $('#taxi');
         const t = setTimeout(() => taxi.classList.add('on'), (S.fast ? 2500 : 9000) / SPEED);
         const drv = $('#drive'), setD = v => { pl.drive = v; engine(v); drv.textContent = v ? '🚶 내리기' : '🚗 운전하기'; };
         taxi.onclick = () => { setD(false); taxi.classList.remove('on'); drv.classList.remove('on'); beep('vroom'); const f = $('#fade'); f.classList.add('on');
@@ -763,15 +839,17 @@ const City = (() => {
         if (SPEED > 1) pl.taxi = true;
       });
     },
-    clearTarget() { target = null; onArrive = null; pl.drive = false; engine(false); $('#taxi').classList.remove('on'); $('#drive').classList.remove('on'); },
+    clearTarget() { target = null; onArrive = null; route = []; destName = ''; pl.drive = false; engine(false); $('#taxi').classList.remove('on'); $('#drive').classList.remove('on'); },
     is3D: use3D && !!G3, AR, talkCam(v) { talkCam = v; talkOff = null; },
     pos() { return [pl.x, pl.y]; },
     freeze(v) { frozen = v; if (v) joy = null; },
-    onNear(fn) { onNear = fn; }, npcDone(id) { npcOk[id] = 1; nearId = null; },
-    arena(on) { arena = on ? AR : null; $('#mapBox').style.display = on ? 'none' : ''; if (on) { pl.x = AR.x0 + 144; pl.y = AR.y1 - 26; camYaw = pl.a = -Math.PI / 2; G3 && G3.reset(); } },
+    tp(x, y, a) { pl.x = x; pl.y = y; if (a != null) camYaw = pl.a = a; G3 && G3.reset(); },
+    onNear(fn) { onNear = fn; }, onHurt(fn) { onHurt = fn; }, isDown() { return pl.down > 0; }, npcDone(id) { npcOk[id] = 1; nearId = null; },
+    arena(on) { arena = on ? AR : null; $('#mapBox').style.display = on ? 'none' : ''; if (on) { pl.x = AR.x0 + 102; pl.y = AR.y1 - 18; camYaw = pl.a = -Math.PI / 2; G3 && G3.reset(); } },
     farmSet(i, it) { G3 && G3.farmSet(i, it); }, farmDeco(v) { G3 && G3.farmDeco(v); }, restSet(i, o) { G3 && G3.restSet(i, o); }, carry(e) { G3 && G3.carry(e); }
   };
 })();
+if (QS.get('dbg') != null) window.__City = City;
 
 /* ═════════════ 미니게임 ═════════════ */
 const timerLoop = (durMs, onTick) => new Promise(res => {       // onTick(남은 비율 0~1, 지난 ms)
@@ -788,7 +866,7 @@ const snowHTML = n => `<div class="snow">${Array.from({ length: n }, () => `<i s
 /* 1장 — 배추 뽑기 */
 async function gameCabbage2D() {
   await ready('🥬', '배추 뽑기', '올라온 배추를 눌러 뽑아요 · ✨황금 배추 3포기 · 🐛벌레는 누르면 안 돼요');
-  const D = sec(60) * 1000; let n = 0;
+  const D = sec(40) * 1000; let n = 0;
   const s = stage(`<div class="mg farm"><div class="mgTop"><span class="gt cnt">🥬 <b id="cabN">0</b>포기</span>
     <div class="season"><i></i><span class="s1">🍂 김장철</span><span class="s2">❄️ 겨울</span></div><span class="gt tm" id="tm"></span></div>
     <div class="holes">${'<button class="hole"><span></span></button>'.repeat(12)}</div><div id="snowBox"></div></div>`);
@@ -825,7 +903,7 @@ let gameOn = false;          // 3D 미니게임 중엔 행인에게 말 걸기 �
 async function gameCabbage3D() {
   await ready('🥬', '배추 뽑기', '밭을 뛰어다니며 배추에 닿으면 뽑혀요 · 🟡 황금 배추 3포기 · 🟤 썩은 배추는 피해요');
   City.place('farm'); City.farmDeco(false); closeStage(); gameOn = true; $('#talk').classList.remove('on');
-  const D = sec(60) * 1000, bar = $('#mgbar'), items = Array(8).fill(null); let n = 0, lastSpawn = -1e9, cold = false;
+  const D = sec(40) * 1000, bar = $('#mgbar'), items = Array(8).fill(null); let n = 0, lastSpawn = -1e9, cold = false;
   bar.innerHTML = `<span class="gt cnt">🥬 <b id="cabN">0</b>포기</span><div class="season"><i></i><span class="s1">🍂 김장철</span><span class="s2">❄️ 겨울</span></div><span class="gt tm" id="tm"></span>`; bar.classList.add('on');
   await timerLoop(D, (p, el) => {
     $('#tm').textContent = Math.ceil((D - el) / 1000); bar.querySelector('.season i').style.width = p * 100 + '%';
@@ -1131,7 +1209,7 @@ const CH = {
         { who: '엄마 (전화)', e: '📱', t: '근로야, 통장에 30만 원 넣어 놨다. 생활비 떨어지기 전에 일자리부터 구하렴~' },
         { who: '강근로', e: '🤔', t: '일할 능력 ⭕ 일할 마음 ⭕ … 그런데도 일자리가 없는 상태를 "실업"이라고 한대. 설마 나한테 그런 일이 생기겠어?' }
       ]);
-      objective('오프닝', City.is3D ? '화면을 누른 채 위로 끌면 앞으로, 좌우로 끌면 방향이 돌아가요 → 노란 빛기둥까지 가 보자' : '화면을 누른 채 끌면 근로가 움직여요 → 노란 표시까지 가 보자');
+      objective('오프닝', City.is3D ? '화면을 누른 채 위로 끌면 앞으로, 좌우로 끌면 방향 전환 → 바닥의 노란 화살표를 따라 우체통까지!' : '화면을 누른 채 끌면 근로가 움직여요 → 노란 길을 따라 우체통까지!');
       await City.walkTo('mail');
       await say([{ who: '강근로', e: '😎', t: '좋아, 길은 다 익혔어. 첫 일자리를 찾으러 출발!' }]);
     }]);
@@ -1142,13 +1220,13 @@ const CH = {
     const t = 'se', R = P.rec[t] = P.rec[t] || {};
     if (P.step > 0) City.place('farm');
     await runSteps([
-      async () => { objective('MISSION 1', '배추 농장으로 가자 (노란 표시)'); await missionCard('MISSION 1', '배추 농장'); await City.walkTo('farm'); },
+      async () => { objective('MISSION 1', '노란 화살표를 따라 배추 농장으로 가자'); await missionCard('MISSION 1', '배추 농장'); await City.walkTo('farm'); },
       async () => {
         objective('MISSION 1', '배추를 최대한 많이 뽑자');
         P.emp = 1; save(); news('김장철을 맞아 배추 농가마다 일손이 모자랍니다.');
         await say([{ who: '농장 주인', e: '👩‍🌾', t: '어서 와, 근로! 김장철이라 일손이 모자라. 배추를 많이 뽑을수록 월급에 얹어 줄게!' }]);
         R.score = await gameCabbage(); save(); const pay = 80000 + R.score * 6000;
-        await passed('미션 완료', [['뽑은 배추', R.score + '포기'], ['월급', '+' + won(pay)]], medalOf(R.score, ...lim(City.is3D ? [22, 12] : [30, 18]))); addMoney(pay, '월급'); await sleep(700);
+        await passed('미션 완료', [['뽑은 배추', R.score + '포기'], ['월급', '+' + won(pay)]], medalOf(R.score, ...lim(City.is3D ? [15, 8] : [20, 12]))); addMoney(pay, '월급'); await sleep(700);
       },
       async () => {
         await say([
@@ -1180,7 +1258,7 @@ const CH = {
     const t = 'st', R = P.rec[t] = P.rec[t] || {};
     if (P.step > 0) City.place('call');
     await runSteps([
-      async () => { objective('MISSION 2', 'AI 콜센터로 가자 (노란 표시)'); await missionCard('MISSION 2', 'AI 콜센터'); await City.walkTo('call'); },
+      async () => { objective('MISSION 2', '노란 화살표를 따라 AI 콜센터로 가자'); await missionCard('MISSION 2', 'AI 콜센터'); await City.walkTo('call'); },
       async () => {
         objective('MISSION 2', '손님 문의에 맞는 안내를 빨리 고르자');
         P.emp = 1; save();
@@ -1219,7 +1297,7 @@ const CH = {
     const t = 'cy', R = P.rec[t] = P.rec[t] || {};
     if (P.step > 0) City.place('rest');
     await runSteps([
-      async () => { objective('MISSION 3', '근로 식당으로 가자 (노란 표시)'); await missionCard('MISSION 3', '동네 식당'); await City.walkTo('rest'); },
+      async () => { objective('MISSION 3', '노란 화살표를 따라 근로 식당으로 가자'); await missionCard('MISSION 3', '동네 식당'); await City.walkTo('rest'); },
       async () => {
         objective('MISSION 3', '주문받은 음식을 식탁에 가져다주자');
         P.emp = 1; save();
@@ -1259,7 +1337,7 @@ const CH = {
     if (P.step > 0) City.place('center');
     await runSteps([
       async () => {
-        objective('MISSION 4', '고용 센터로 가자 (노란 표시)'); await missionCard('MISSION 4', '고용 센터');
+        objective('MISSION 4', '노란 화살표를 따라 고용 센터로 가자'); await missionCard('MISSION 4', '고용 센터');
         await say([{ who: '강근로', e: '🧑', t: '세 번이나 일자리를 잃었어… 이번엔 아무 데나 가지 말고, 나한테 맞는 일을 직접 찾아보자!' }]);
         await City.walkTo('center');
       },
@@ -1299,7 +1377,7 @@ const CH = {
   5: async () => {
     if (P.step > 0) City.place('counsel');
     await runSteps([
-      async () => { objective('FINAL MISSION', '실업 상담소로 가자 (노란 표시)'); await missionCard('FINAL MISSION', '실업 상담소'); await City.walkTo('counsel'); },
+      async () => { objective('FINAL MISSION', '노란 화살표를 따라 실업 상담소로 가자'); await missionCard('FINAL MISSION', '실업 상담소'); await City.walkTo('counsel'); },
       async () => {
         objective('FINAL MISSION', '찾아온 사람을 알맞은 창구로 보내자');
         await say([{ who: '상담소장', e: '👩‍⚖️', t: '근로 씨! 실업을 네 가지나 직접 겪어 봤다면서요? 오늘 하루 상담원이 되어 주세요.' }, { who: '상담소장', e: '👩‍⚖️', t: '조심! 일할 마음이 없거나 이미 일하는 사람은 실업자가 아니에요. 그런 분은 "실업자 아님" 창구로!' }]);
@@ -1408,7 +1486,7 @@ function endingStats() {
 
 /* ═════════════ 입장 · 진행 ═════════════ */
 async function waitOpen(ch) {
-  const open = () => SOLO || S.status === 'end' || (S.status === 'run' && (S.open ?? 0) >= ch);
+  const open = () => SOLO || S.status === 'end' || (S.status === 'run' && (S.mode !== 'step' || (S.open ?? 0) >= ch));
   if (open()) return;
   City.clearTarget();
   objective(ch === 0 ? '입장 완료' : '🔒 잠깐 쉬는 시간', ch === 0 ? '선생님이 시작하면 미션이 열려요 · 화면을 끌어 도시를 구경해요' : `선생님이 다음 미션(${CHAPTERS[ch].name})을 열어 주면 이어져요 · 도시를 구경해요`);
@@ -1418,6 +1496,8 @@ async function waitOpen(ch) {
 async function main() {
   $('#hud').hidden = false; hud(); applyFx();
   Object.keys(P.npc || {}).forEach(id => City.npcDone(id));
+  City.onHurt(() => { const h = $('#hurt'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); setTimeout(() => h.classList.remove('on'), 1700);
+    addMoney(-10000, '병원비'); setTimeout(() => toast('차 조심! 길은 횡단보도로 건너요', 'bad'), 700); });
   City.onNear(id => { const b = $('#talk'), n = UC.NPCS.find(x => x.id === id); b.classList.toggle('on', !!n && !talkBusy && !gameOn); if (n) { b.textContent = `💬 ${n.who}에게 말 걸기`; b.onclick = () => talk(id); } });
   for (;;) {
     await waitOpen(P.ch); applyFx();
@@ -1442,7 +1522,7 @@ async function join(name) {
   toast(ex && (ex.ch || ex.step) ? '다시 왔네요! 하던 곳부터 이어가요 💪' : `${name.split(' ').pop()}, 실업 시티에 온 걸 환영해요!`, 'good');
   main().catch(e => { console.error(e); toast('문제가 생겼어요 — 새로고침 해 주세요', 'bad'); });
 }
-$('#joinBtn').onclick = () => { beep('tap'); join($('#nameIn').value); };
+$('#joinBtn').onclick = () => { beep('tap'); goFull(); join($('#nameIn').value); };
 $('#nameIn').addEventListener('keydown', e => { if (e.key === 'Enter') join(e.target.value); });
 setInterval(() => { if (me) Promise.resolve(store.setPlayer(me.id, { seen: Date.now() })).catch(() => {}); }, 25000);
 let lastPos = [0, 0];            // 진행판 지도용: 6초마다, 움직였을 때만 위치 보냄

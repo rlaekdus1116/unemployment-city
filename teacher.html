@@ -51,7 +51,8 @@ button,input{font:inherit;color:inherit}button{cursor:pointer}
 /* 대기실 */
 .lobby{display:grid;grid-template-columns:auto 1fr;gap:22px;align-items:center;margin:auto 0}
 .qrcard{text-align:center;display:flex;flex-direction:column;gap:8px;align-items:center}
-.qrcard svg{width:290px;height:290px;background:#fff}
+.qrcard .qrbox svg{width:300px;height:300px;display:block}
+.qrbox{background:#fff;padding:10px;border-radius:14px;border:4px solid #000;box-shadow:0 0 0 4px var(--y)}
 .url{font-size:1.2rem;font-weight:800;word-break:break-all;max-width:320px}
 .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .fl{--c:#999;border:3px solid #000;border-top:10px solid var(--c);background:#1d2027;padding:12px;font-weight:800;word-break:keep-all}
@@ -87,7 +88,15 @@ button,input{font:inherit;color:inherit}button{cursor:pointer}
 .modal{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.85)}
 .modal.on{display:flex}
 .modal .pn{display:flex;flex-direction:column;gap:12px;align-items:center;padding:26px}
-.modal svg{width:min(70vh,560px);height:min(70vh,560px);background:#fff}
+.modal .qrbox svg{width:min(74vh,46vw);height:min(74vh,46vw);display:block}
+.qrwrap{display:flex;gap:40px;align-items:center;justify-content:center;max-width:96vw}
+.qrside{display:flex;flex-direction:column;gap:16px;max-width:520px}
+.qrside .steps{display:flex;flex-direction:column;gap:10px;font-size:1.45rem}
+.qrside .steps div{display:flex;gap:12px;align-items:center}
+.qrside .steps b.n{flex:none;width:42px;height:42px;border-radius:50%;background:var(--y);color:#000;display:grid;place-items:center;font-size:1.4rem;border:3px solid #000}
+.qrside .addr{font-family:ui-monospace,Menlo,monospace;font-size:1.25rem;background:#000;border:2px solid var(--line);border-radius:10px;padding:10px 12px;word-break:break-all}
+.qrside .solo{font-size:.95rem;opacity:.75}
+@media (max-aspect-ratio:1/1){.qrwrap{flex-direction:column;gap:20px}.modal .qrbox svg{width:min(80vw,52vh);height:min(80vw,52vh)}}
 
 .ic{width:1.2em;height:1.2em;vertical-align:-.25em;display:inline-block;overflow:visible}
 .gt,.hdr h1{font-style:normal!important;letter-spacing:0}
@@ -119,8 +128,10 @@ button,input{font:inherit;color:inherit}button{cursor:pointer}
   <div class="body">
     <aside id="dock" class="dock pn">
       <button class="btn wide green" id="bNext">▶ 수업 시작</button>
-      <h3>챕터 열기 (누른 곳까지 한꺼번에 열림)</h3>
+      <p class="note" id="autoNote"></p>
+      <h3 id="chsH">챕터 열기 (누른 곳까지 한꺼번에 열림)</h3>
       <div class="chs" id="chs"></div>
+      <button class="btn sm dark" id="bMode"></button>
       <div class="grid2">
         <button class="btn sm dark" id="bFast">⏩ 빨리 감기</button>
         <button class="btn sm dark" id="bLobby">🏠 대기실</button>
@@ -130,13 +141,13 @@ button,input{font:inherit;color:inherit}button{cursor:pointer}
         <button class="btn sm dark" id="bCsv">📥 엑셀</button>
         <button class="btn sm dark" id="bClear">🧹 기록 지우기</button>
       </div>
-      <p class="note"><b>⏩ 빨리 감기</b>: 미니게임 60→30초, 상담소 12→8명 (켠 뒤 시작하는 게임부터 적용).<br><b>🏁 엔딩</b>: 덜 끝낸 학생도 비교표로 넘어가요.<br>반이 바뀌면 <b>🧹 기록 지우기</b> → 학생 태블릿도 입장 화면으로 돌아가요.</p>
+      <p class="note"><b>⏩ 빨리 감기</b>: 배추 40→20초·다른 미니게임 60→30초, 상담소 12→8명 (켠 뒤 시작하는 게임부터 적용).<br><b>🏁 엔딩</b>: 덜 끝낸 학생도 비교표로 넘어가요.<br>반이 바뀌면 <b>🧹 기록 지우기</b> → 학생 태블릿도 입장 화면으로 돌아가요.</p>
       <div class="demo" id="demo" hidden>🧪 체험 모드 — shared.js 에 Firebase 열쇠가 없어요. 같은 브라우저 다른 탭에서 index.html 을 열면 연결돼요.</div>
     </aside>
     <main id="stage" class="tstage"></main>
   </div>
 </div>
-<div id="qrModal" class="modal"><div class="pn"><div id="qrBig"></div><div class="url" id="qrUrl" style="max-width:600px;font-size:1.5rem"></div><button class="btn" id="qrClose">닫기</button></div></div>
+<div id="qrModal" class="modal"><div class="pn"><div id="qrBig"></div><button class="btn" id="qrClose">닫기</button></div></div>
 
 <script src="shared.js"></script>
 <script>
@@ -178,32 +189,43 @@ function recCh() {            // 지금 시각에 권장되는 챕터
   CHAPTERS.forEach(c => { if (m >= acc) r = c.n; acc += c.min; }); return r;
 }
 function renderDock() {
-  const st = S.status || 'lobby', live = st === 'run' || st === 'end', open = st === 'end' ? 6 : (S.open ?? -1), rc = recCh();
+  const st = S.status || 'lobby', auto = S.mode !== 'step', live = st === 'run' || st === 'end', open = st === 'end' ? 6 : (S.open ?? -1), rc = recCh();
+  $('#chs').hidden = $('#chsH').hidden = auto;
+  $('#bMode').textContent = auto ? '🔒 한 장씩 직접 열기로 바꾸기' : '▶ 자동 진행으로 바꾸기';
+  $('#autoNote').innerHTML = auto ? (st === 'run' ? '<b style="color:var(--g)">자동 진행 중</b> — 학생마다 미션을 끝내면 다음 미션으로 저절로 넘어가요. 선생님은 지켜보다가 끝에 🏁만 누르면 돼요.' : '한 번만 누르면 끝까지 <b>자동으로</b> 진행돼요.') : '선생님이 장을 열어 줘야 넘어가요.';
   $('#chs').innerHTML = CHAPTERS.map(c => `<button class="chb ${live && c.n <= open ? 'open' : ''} ${live && c.n === open ? 'now' : ''}" data-n="${c.n}">
     <span>${live && c.n <= open ? '🔓' : '🔒'}</span><span>${c.name}${c.t ? ` <small>${TYPES[c.t].icon} ${TYPES[c.t].short}</small>` : ''}</span><small>${c.at}${rc === c.n ? ' ◀' : ''}</small></button>`).join('');
   document.querySelectorAll('.chb').forEach(b => b.onclick = () => openTo(+b.dataset.n));
   const nb = $('#bNext');
   if (st === 'end') { nb.textContent = '🏁 엔딩 공개 중'; nb.disabled = true; }
-  else if (st !== 'run') { nb.textContent = '▶ 수업 시작 (오프닝 열기)'; nb.disabled = false; }
+  else if (st !== 'run') { nb.textContent = auto ? '▶ 수업 시작' : '▶ 수업 시작 (오프닝 열기)'; nb.disabled = false; }
+  else if (auto) { nb.textContent = '✅ 자동 진행 중'; nb.disabled = true; }
   else if (open < 6) { nb.textContent = `⏭ 다음 열기: ${CHAPTERS[open + 1].name}`; nb.disabled = false; }
   else { nb.textContent = '모든 챕터가 열렸어요'; nb.disabled = true; }
   $('#bFast').classList.toggle('onx', !!S.fast); $('#bFast').textContent = S.fast ? '⏩ 빨리 감기 켜짐' : '⏩ 빨리 감기';
 }
 function openTo(n) { const p = { status: 'run', open: n }; if (S.status !== 'run' || !S.startAt) p.startAt = Date.now(); store.setState(p); }
-$('#bNext').onclick = () => openTo(S.status === 'run' ? Math.min(6, (S.open ?? -1) + 1) : 0);
+$('#bNext').onclick = () => S.mode !== 'step' ? openTo(6) : openTo(S.status === 'run' ? Math.min(6, (S.open ?? -1) + 1) : 0);
+$('#bMode').onclick = () => { if (S.mode !== 'step') { const far = Math.max(0, ...Object.values(PL).map(p => p.ch || 0)); store.setState({ mode: 'step', ...(S.status === 'run' ? { open: far } : {}) }); } else store.setState({ mode: 'auto', ...(S.status === 'run' ? { open: 6 } : {}) }); };
 $('#bFast').onclick = () => store.setState({ fast: !S.fast });
 $('#bLobby').onclick = () => store.setState({ status: 'lobby' });
 $('#bEnd').onclick = () => { if (confirm('모든 학생을 엔딩(비교표)으로 보내고 반 결과를 띄울까요?')) store.setState({ status: 'end', open: 6 }); };
 $('#bClear').onclick = async () => {
   if (!confirm('학생 기록을 모두 지울까요? (먼저 엑셀로 받아 두세요)')) return;
-  hist = []; await store.clearPlayers(); await store.setState({ resetAt: Date.now(), status: 'lobby', open: -1, startAt: 0, fast: false });
+  hist = []; await store.clearPlayers(); await store.setState({ resetAt: Date.now(), status: 'lobby', open: -1, startAt: 0, fast: false, mode: S.mode || 'auto' });
 };
 $('#btnDock').onclick = () => $('#dock').classList.toggle('hide');
 $('#btnRadio').onclick = () => { UC.Radio.next(); $('#btnRadio').textContent = UC.Radio.label(); $('#btnRadio').classList.toggle('onx', UC.Radio.cur >= 0); };
 $('#radioVol').oninput = e => UC.Radio.volume(e.target.value / 100);
 function studentURL() { return location.protocol === 'file:' ? new URL('index.html', location.href).href : new URL('./', location.href).href; }
-function qrSVG(url, cell = 8) { if (!window.qrcode) return '<div style="padding:30px">QR 불러오기 실패 — 주소를 칠판에 써 주세요</div>'; const q = qrcode(0, 'M'); q.addData(url); q.make(); return q.createSvgTag({ cellSize: cell, margin: 2, scalable: true }); }
-$('#btnQR').onclick = () => { const u = studentURL(); $('#qrBig').innerHTML = qrSVG(u, 12); $('#qrUrl').innerHTML = esc(u) + `<div style="font-size:1rem;opacity:.75;margin-top:8px">🎮 혼자 하기(결석생·복습): ${esc(u + (u.includes('?') ? '&' : '?') + 'solo=1')}</div>`; $('#qrModal').classList.add('on'); };
+function qrSVG(url, cell = 8) { if (!window.qrcode) return '<div class="qrbox" style="padding:30px;color:#000">QR 불러오기 실패 — 주소를 칠판에 써 주세요</div>'; const q = qrcode(0, 'M'); q.addData(url); q.make(); return '<div class="qrbox">' + q.createSvgTag({ cellSize: cell, margin: 1, scalable: true }) + '</div>'; }
+const shortURL = u => u.replace(/^https?:\/\//, '').replace(/\/$/, '');
+$('#btnQR').onclick = () => { const u = studentURL(); $('#qrBig').innerHTML = `<div class="qrwrap">${qrSVG(u, 12)}<div class="qrside">
+    <div class="gt y" style="font-size:1.4rem;font-style:italic">백수 위기 탈출</div><h1 class="gt" style="font-size:3.4rem;font-style:italic;margin:0">실업 시티</h1>
+    <div class="steps"><div><b class="n">1</b>태블릿 카메라로 QR 찍기</div><div><b class="n">2</b>학번과 이름 쓰기 <small style="opacity:.7">예) 20111 김다연</small></div><div><b class="n">3</b>「도시로 들어가기」 누르기</div></div>
+    <div><div style="opacity:.7;margin-bottom:4px">QR이 안 되면 주소창에</div><div class="addr">${esc(shortURL(u))}</div></div>
+    <div class="solo">결석생·복습은 주소 끝에 <b>?solo=1</b> → 혼자 끝까지</div></div></div>`; $('#qrModal').classList.add('on'); };
+$('#qrModal').onclick = e => { if (e.target.id === 'qrModal') $('#qrModal').classList.remove('on'); };
 $('#qrClose').onclick = () => $('#qrModal').classList.remove('on');
 
 const ox = (R, f) => R?.[f + '1'] == null ? '' : (R[f + '1'] === R._t ? 'O' : 'X') + (R[f + 'Tries'] ? `(${R[f + 'Tries']}번)` : '');
@@ -249,7 +271,7 @@ function namesHTML(arr) { return `<div class="names">${arr.length ? arr.sort((a,
 function lobbyHTML(arr) {
   const u = studentURL();
   return `<div class="lobby">
-    <div class="pn stripe qrcard"><div class="gt y" style="font-size:1.4rem">📱 찍고 들어와요</div>${qrSVG(u, 8)}<div class="url">${esc(u)}</div></div>
+    <div class="pn stripe qrcard"><div class="gt y" style="font-size:1.5rem">카메라로 찍고 들어와요</div>${qrSVG(u, 8)}<div class="url" style="font-size:1.05rem">${esc(shortURL(u))}</div><button class="btn sm" onclick="document.getElementById('btnQR').click()">크게 보기</button></div>
     <div style="display:flex;flex-direction:column;gap:14px">
       <div><div class="gt y" style="font-size:1.6rem;font-style:italic">백수 위기 탈출</div><h1 class="gt" style="font-size:4.4rem;font-style:italic">실업 시티</h1></div>
       <div class="talk">스무 살 <b>강근로</b>가 실업 시티에서 일자리를 구합니다. 그런데 일할 때마다 위기가…!<br>근로가 <b>왜</b> 일자리를 잃는지 추리하고, 마지막엔 상담원이 되어 주세요.</div>
@@ -283,17 +305,18 @@ function mapHTML(arr) {
     </svg></div>`;
 }
 function runHTML(arr) {
-  const open = S.open ?? 0, steps = [1, 6, 6, 6, 6, 2, 1];
+  const auto = S.mode !== 'step', open = auto ? 6 : (S.open ?? 0), steps = [1, 6, 6, 6, 6, 2, 1];
+  const cnt = CHAPTERS.map(c => arr.filter(p => online(p) && (p.ch || 0) === c.n && !p.done).length), talkCh = auto ? (Math.max(...cnt) ? cnt.indexOf(Math.max(...cnt)) : 0) : open;
   const SHORT = ['오프닝', '① 농장', '② 콜센터', '③ 식당', '④ 고용센터', '상담소', '엔딩'];
   const cols = CHAPTERS.map(c => {
     const here = arr.filter(p => (p.ch || 0) === c.n).sort((a, b) => (b.step || 0) - (a.step || 0));
-    return `<div class="col ${c.n <= open ? 'open' : ''} ${c.n === open ? 'now' : ''}"><div class="hd"><span>${c.n <= open ? '' : '🔒 '}${SHORT[c.n]}</span><span>${here.length}</span></div>
+    return `<div class="col ${c.n <= open ? 'open' : ''} ${c.n === talkCh ? 'now' : ''}"><div class="hd"><span>${c.n <= open ? '' : '🔒 '}${SHORT[c.n]}</span><span>${here.length}</span></div>
       <div class="ls">${here.map(p => `<div class="st ${online(p) ? '' : 'off'} ${p.done ? 'done' : ''}">${esc(p.name)}<i style="width:${p.done ? 100 : Math.round(((p.step || 0) + 1) / steps[c.n] * 100)}%"></i></div>`).join('')}</div></div>`;
   }).join('');
   const waiting = arr.filter(p => (p.ch || 0) > open && online(p)).length;
   return `<div class="row2" style="grid-template-columns:1fr 1.15fr;align-items:start">${rateHTML(arr)}${mapHTML(arr)}</div><div class="board">${cols}</div>
     <div class="row2">
-      <div class="pn stripe"><p class="big3">💬 지금 던질 질문 — ${CHAPTERS[open].name}</p><div class="talk">${TALK[open]}</div>
+      <div class="pn stripe"><p class="big3">💬 지금 던질 질문 — ${CHAPTERS[talkCh].name}</p><div class="talk">${TALK[talkCh]}</div>
         ${waiting ? `<div class="pill" style="display:inline-block;margin-top:10px;border-color:var(--y);color:var(--y)">⏳ 다음 장을 기다리는 학생 ${waiting}명</div>` : ''}</div>
       <div class="pn"><p class="big3">🎯 한 번에 맞힌 비율 (원인 고르기)</p>${firstBars(arr)}</div>
     </div>`;

@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>백수 위기 탈출: 실업 시티</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -36,7 +37,7 @@ body.gray #city{transform:scale(1.1)}
 #badges b{font-family:var(--disp);font-weight:400;font-size:clamp(1.4rem,3.2vw,2.1rem);line-height:1;color:rgba(0,0,0,.45);text-shadow:1px 1px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000}
 #badges b.on{color:#fff}
 .hbtn{display:flex;gap:6px;justify-content:flex-end;margin-top:6px}
-#mute,#radio{border:2px solid #000;background:rgba(0,0,0,.6);font-size:.8rem;padding:.4em .6em;font-weight:800}
+#mute,#radio,#full{color:#fff;border:2px solid #000;background:rgba(0,0,0,.6);font-size:.8rem;padding:.4em .6em;font-weight:800}
 #radio.on{background:var(--y);color:#000}
 #mapBox{position:absolute;left:16px;bottom:16px;width:min(30vw,236px);filter:drop-shadow(0 6px 0 rgba(0,0,0,.5))}
 #radar{display:block;width:100%;border:3px solid #000;border-bottom:0;border-radius:8px 8px 0 0;background:#17191e}
@@ -48,9 +49,18 @@ body.gray #city{transform:scale(1.1)}
 .mlab{display:grid;grid-template-columns:2fr 1fr;gap:3px;font-size:.66rem;font-weight:800;text-shadow:0 1px 2px #000;padding:2px 3px 0}
 #hudObj{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);width:max-content;max-width:min(50vw,620px);text-align:center;font-weight:800;font-size:clamp(1rem,2.3vw,1.35rem);line-height:1.35;word-break:keep-all;
   text-shadow:2px 0 #000,-2px 0 #000,0 2px #000,0 -2px #000,1px 1px #000,-1px -1px #000,1px -1px #000,-1px 1px #000,0 3px 6px #000}
-#nav{position:absolute;left:50%;top:74px;transform:translateX(-50%);display:none;flex-direction:column;align-items:center;gap:2px;pointer-events:none}
-#nav i{font-style:normal;font-size:2.2rem;line-height:1;color:var(--y);text-shadow:2px 0 #000,-2px 0 #000,0 2px #000,0 -2px #000}
-#nav b{font-family:var(--disp);font-weight:400;font-size:1.05rem;background:rgba(0,0,0,.65);padding:.1em .6em}
+#nav{position:absolute;left:50%;top:70px;transform:translateX(-50%);display:none;align-items:center;gap:12px;pointer-events:none;background:rgba(10,12,18,.82);border:3px solid #000;box-shadow:0 0 0 3px var(--y),0 6px 0 rgba(0,0,0,.45);border-radius:999px;padding:6px 22px 6px 8px}
+#nav .ar{width:clamp(46px,7vw,62px);height:clamp(46px,7vw,62px);flex:none;transition:transform .12s linear}
+#nav .ar svg{width:100%;height:100%;display:block}
+#nav .tx{display:flex;flex-direction:column;line-height:1.1}
+#nav .nm{font-family:var(--disp);font-size:clamp(1.25rem,3vw,1.8rem);color:var(--y);text-shadow:2px 2px 0 #000}
+#nav .ds{font-weight:800;font-size:clamp(.95rem,2.2vw,1.2rem);color:#fff}
+#hurt{position:fixed;inset:0;z-index:40;pointer-events:none;display:grid;place-items:center;opacity:0;background:radial-gradient(ellipse at center,rgba(255,0,40,0) 35%,rgba(255,0,40,.6) 100%)}
+#hurt b{font-family:var(--disp);font-weight:400;font-size:clamp(3rem,11vw,7rem);color:#ff4d6d;-webkit-text-stroke:3px #000;text-shadow:5px 5px 0 #000;transform:rotate(-8deg)}
+#hurt.on{animation:hurtA 1.6s ease-out forwards}
+#hurt.on b{animation:hurtB 1.6s ease-out forwards}
+@keyframes hurtA{0%{opacity:1}55%{opacity:1}100%{opacity:0}}
+@keyframes hurtB{0%{transform:scale(2.4) rotate(-8deg)}14%{transform:scale(.9) rotate(-8deg)}22%{transform:scale(1.05) rotate(-6deg)}100%{transform:scale(1) rotate(-8deg)}}
 #cap{position:absolute;left:0;right:0;bottom:150px;text-align:center;font-size:clamp(1.3rem,3.4vw,2rem);display:none;pointer-events:none}
 #fade{position:fixed;inset:0;z-index:27;background:#000;opacity:0;pointer-events:none;transition:opacity .35s}
 #fade.on{opacity:1}
@@ -270,7 +280,7 @@ body.gray #city{transform:scale(1.1)}
 .bubble .e .ic{width:1.5em;height:1.55em}
 /* ── 블록 장난감풍: 둥근 글씨·둥근 모서리 ── */
 .gt,#mtitle .a,#mtitle .b,.pt,#hudCh,.logo .a,.logo .b,.panels div span{font-style:normal!important;letter-spacing:0}
-.btn,#taxi,#drive,#talk,#mute,#radio,.chip,.dish,.cell,.win,.opt,.input,.item,.hole,.tb{border-radius:16px}
+.btn,#taxi,#drive,#talk,#mute,#radio,#full,.chip,.dish,.cell,.win,.opt,.input,.item,.hole,.tb{border-radius:16px}
 .pn{border-radius:24px;background:#1b2440;box-shadow:0 0 0 3px #000,0 10px 0 rgba(0,0,0,.45)}
 .pn.stripe{border-top:10px solid var(--y)}
 .opt{background:#27325a}
@@ -295,13 +305,13 @@ body.gray #city{transform:scale(1.1)}
   <div id="hudTR">
     <div id="money" class="gt">₩0</div>
     <div id="badges"></div>
-    <div class="hbtn"><button id="mute">🔊</button><button id="radio">📻 라디오 꺼짐</button></div>
+    <div class="hbtn"><button id="full">전체화면</button><button id="mute">🔊</button><button id="radio">📻 라디오 꺼짐</button></div>
   </div>
   <div id="mapBox"><canvas id="radar" width="400" height="260"></canvas>
     <div class="mbars"><div id="gauge"><i style="width:30%"></i></div><div id="xp"><i></i></div></div>
     <div class="mlab"><span>생활비</span><span>실업 도감</span></div></div>
   <div id="hudObj"></div>
-  <div id="nav"><i>▲</i><b></b></div><div id="cap" class="gt"></div>
+  <div id="nav"><div class="ar"><svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" fill="#ffd23f" stroke="#000" stroke-width="4"/><path d="M32 9 L50 40 L37 35 L37 54 L27 54 L27 35 L14 40 Z" fill="#000"/></svg></div><div class="tx"><span class="nm"></span><span class="ds"></span></div></div><div id="hurt"><b>꽈당!</b></div><div id="cap" class="gt"></div>
   <button id="drive">🚗 운전하기</button><button id="talk"></button>
   <button id="taxi">🚕 택시 타기</button>
   <div id="mtitle"><div class="a gt y"></div><div class="b gt"></div></div>
@@ -309,7 +319,7 @@ body.gray #city{transform:scale(1.1)}
 <div id="pass"></div>
 <div id="fade"></div>
 <div id="mgbar"></div>
-<div id="news"><b>📻 실업 FM 속보</b><span></span></div>
+<div id="news"><b>📻 종암 실업 뉴스</b><span></span></div>
 
 <div id="stage"></div>
 <div id="pick"></div>
